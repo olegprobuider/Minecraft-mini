@@ -3,18 +3,21 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>3D Майн с управлением камерой и кнопками</title>
+<title>3D Майн с двумя джойстиками</title>
 <style>
   body, html { margin:0; height:100%; overflow:hidden; background:#87ceeb; }
   canvas { display:block; }
 
-  #joystickContainer {
-    position: absolute; bottom: 20px; left: 20px; width: 120px; height: 120px;
+  .joystickContainer {
+    position: absolute; bottom: 20px; width: 120px; height: 120px;
     background: rgba(0,0,0,0.3); border-radius: 50%; touch-action: none;
     user-select:none;
     z-index: 10;
   }
-  #joystick {
+  #joystickContainerLeft { left: 20px; }
+  #joystickContainerRight { right: 20px; }
+
+  .joystick {
     position: absolute; left: 50%; top: 50%;
     width: 60px; height: 60px; margin-left: -30px; margin-top: -30px;
     background: rgba(255,255,255,0.7); border-radius: 50%;
@@ -29,6 +32,7 @@
     gap: 10px;
     z-index: 11;
   }
+  #buttons button:last-child { margin-top: 10px; } /* Отступ для кнопки полноэкранного режима */
 
   button {
     font-size: 16px;
@@ -47,14 +51,19 @@
 </head>
 <body>
 
-<div id="joystickContainer">
-  <div id="joystick"></div>
+<div id="joystickContainerLeft" class="joystickContainer">
+  <div id="joystickLeft" class="joystick"></div>
+</div>
+
+<div id="joystickContainerRight" class="joystickContainer">
+  <div id="joystickRight" class="joystick"></div>
 </div>
 
 <div id="buttons">
   <button id="placeBtn">Поставить</button>
   <button id="removeBtn">Убрать</button>
   <button id="changeBlockBtn">Блок: <span id="blockType">Коричневый</span></button>
+  <button id="jumpBtn">Прыжок</button>
   <button id="fullscreenBtn">Полноэкранный</button>
 </div>
 
@@ -95,11 +104,12 @@ const blocks = new Map(); // координаты -> Mesh
 // Разные материалы блоков
 const blockMaterials = [
   new THREE.MeshLambertMaterial({color: 0x8B4513}), // коричневый
-  new THREE.MeshLambertMaterial({color: 0xffffff}), // белый
-  new THREE.MeshLambertMaterial({color: 0xFFD700}), // жёлтый (золото)
+  new THREE.MeshLambertMaterial({color: 0xFFD700}), // жёлтый
+  new THREE.MeshLambertMaterial({color: 0x4169e1}), // синий
+  new THREE.MeshLambertMaterial({color: 0x808080}), // серый
 ];
 
-const blockNames = ['Коричневый', 'Белый', 'Жёлтый'];
+const blockNames = ['Коричневый', 'Жёлтый', 'Синий', 'Серый'];
 let currentBlockIndex = 0;
 
 // Геометрия куба одна для всех
@@ -111,7 +121,7 @@ function posToKey(x,y,z) {
 
 function addBlock(x,y,z, type = currentBlockIndex){
   const key = posToKey(x,y,z);
-  if(blocks.has(key)) return; // блок уже есть
+  if(blocks.has(key)) return;
   const cube = new THREE.Mesh(cubeGeometry, blockMaterials[type].clone());
   cube.position.set(x+blockSize/2, y+blockSize/2, z+blockSize/2);
   cube.userData.type = type;
@@ -135,89 +145,98 @@ addBlock(-1,0,0);
 addBlock(0,0,1);
 addBlock(0,1,0);
 
-// Джойстик для движения
-const joystickContainer = document.getElementById('joystickContainer');
-const joystick = document.getElementById('joystick');
-let joystickActive = false;
-let startX=0, startY=0;
-let moveX=0, moveY=0;
-
+// ДЖОЙСТИК ДЛЯ ДВИЖЕНИЯ (ЛЕВЫЙ)
+const joystickContainerLeft = document.getElementById('joystickContainerLeft');
+const joystickLeft = document.getElementById('joystickLeft');
+let joystickLeftActive = false;
+let startXLeft=0, startYLeft=0;
 let velocity = new THREE.Vector3(0,0,0);
 const speed = 0.05;
 
-joystick.addEventListener('touchstart', (e) => {
+joystickContainerLeft.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  joystickActive = true;
+  joystickLeftActive = true;
   const touch = e.touches[0];
-  startX = touch.clientX;
-  startY = touch.clientY;
-  moveX = 0; moveY = 0;
-  joystick.style.transform = `translate(0px, 0px)`;
-});
-joystick.addEventListener('touchmove', (e) => {
-  if(!joystickActive) return;
-  e.preventDefault();
-  const touch = e.touches[0];
-  moveX = touch.clientX - startX;
-  moveY = touch.clientY - startY;
-  const maxDist = 40;
-  const dist = Math.sqrt(moveX*moveX + moveY*moveY);
-  if(dist > maxDist){
-    const angle = Math.atan2(moveY, moveX);
-    moveX = Math.cos(angle)*maxDist;
-    moveY = Math.sin(angle)*maxDist;
-  }
-  joystick.style.transform = `translate(${moveX}px, ${moveY}px)`;
-  velocity.x = moveX / maxDist;
-  velocity.z = moveY / maxDist * -1;
-});
-joystick.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  joystickActive = false;
-  joystick.style.transform = `translate(0px, 0px)`;
-  velocity.set(0,0,0);
-});
+  startXLeft = touch.clientX;
+  startYLeft = touch.clientY;
+  joystickLeft.style.transform = `translate(0px, 0px)`;
+}, { passive: false });
 
-// Камера вращение пальцем (свайпы справа от джойстика)
-let isRotating = false;
-let lastTouchX = 0;
-let lastTouchY = 0;
+joystickContainerLeft.addEventListener('touchmove', (e) => {
+  if(!joystickLeftActive) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  let dx = touch.clientX - startXLeft;
+  let dy = touch.clientY - startYLeft;
+
+  const maxDist = 40;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if(dist > maxDist){
+    const angle = Math.atan2(dy, dx);
+    dx = Math.cos(angle)*maxDist;
+    dy = Math.sin(angle)*maxDist;
+  }
+  
+  joystickLeft.style.transform = `translate(${dx}px, ${dy}px)`;
+  velocity.x = dx / maxDist;
+  velocity.z = dy / maxDist * -1;
+}, { passive: false });
+
+joystickContainerLeft.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  joystickLeftActive = false;
+  joystickLeft.style.transform = `translate(0px, 0px)`;
+  velocity.set(0,0,0);
+}, { passive: false });
+
+
+// ДЖОЙСТИК ДЛЯ ПОВОРОТА КАМЕРЫ (ПРАВЫЙ)
+const joystickContainerRight = document.getElementById('joystickContainerRight');
+const joystickRight = document.getElementById('joystickRight');
+let joystickRightActive = false;
+let startXRight = 0, startYRight = 0;
 let yaw = 0;   // влево-вправо
 let pitch = 0; // вверх-вниз
 const pitchLimit = Math.PI / 2 - 0.1;
 
-renderer.domElement.addEventListener('touchstart', (e) => {
-  // Игнорируем джойстик область
-  if(e.target === joystick || joystick.contains(e.target)) return;
-  if(e.touches.length === 1){
-    const touch = e.touches[0];
-    if(touch.clientX > joystickContainer.getBoundingClientRect().right + 20){
-      isRotating = true;
-      lastTouchX = touch.clientX;
-      lastTouchY = touch.clientY;
-    }
-  }
-});
+joystickContainerRight.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  joystickRightActive = true;
+  const touch = e.touches[0];
+  startXRight = touch.clientX;
+  startYRight = touch.clientY;
+  joystickRight.style.transform = `translate(0px, 0px)`;
+}, { passive: false });
 
-renderer.domElement.addEventListener('touchmove', (e) => {
-  if(!isRotating) return;
+joystickContainerRight.addEventListener('touchmove', (e) => {
+  if(!joystickRightActive) return;
   e.preventDefault();
   const touch = e.touches[0];
-  const deltaX = touch.clientX - lastTouchX;
-  const deltaY = touch.clientY - lastTouchY;
-  lastTouchX = touch.clientX;
-  lastTouchY = touch.clientY;
+  let dx = touch.clientX - startXRight;
+  let dy = touch.clientY - startYRight;
 
-  yaw -= deltaX * 0.005;
-  pitch -= deltaY * 0.005;
+  const maxDist = 40;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if(dist > maxDist){
+    const angle = Math.atan2(dy, dx);
+    dx = Math.cos(angle)*maxDist;
+    dy = Math.sin(angle)*maxDist;
+  }
 
-  if(pitch > pitchLimit) pitch = pitchLimit;
-  if(pitch < -pitchLimit) pitch = -pitchLimit;
-});
+  joystickRight.style.transform = `translate(${dx}px, ${dy}px)`;
+  yaw -= dx * 0.005;
+  pitch -= dy * 0.005;
 
-renderer.domElement.addEventListener('touchend', (e) => {
-  isRotating = false;
-});
+  if (pitch > pitchLimit) pitch = pitchLimit;
+  if (pitch < -pitchLimit) pitch = -pitchLimit;
+}, { passive: false });
+
+joystickContainerRight.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  joystickRightActive = false;
+  joystickRight.style.transform = `translate(0px, 0px)`;
+}, { passive: false });
+
 
 // Обновляем направление камеры по yaw и pitch
 function updateCameraRotation(){
@@ -257,20 +276,11 @@ function placeBlock(){
 
   if(intersects.length > 0){
     const intersect = intersects[0];
-    if(intersect.object === ground){
-      const pos = intersect.point;
-      const x = Math.floor(pos.x);
-      const y = 0;
-      const z = Math.floor(pos.z);
-      addBlock(x,y,z, currentBlockIndex);
-    } else {
-      const pos = intersect.point;
-      const cubePos = intersect.object.position;
-      const x = Math.floor(cubePos.x - blockSize/2);
-      const y = Math.floor(cubePos.y - blockSize/2);
-      const z = Math.floor(cubePos.z - blockSize/2);
-      addBlock(x,y+1,z, currentBlockIndex);
-    }
+    let pos = intersect.point.add(intersect.face.normal);
+    let x = Math.floor(pos.x);
+    let y = Math.floor(pos.y);
+    let z = Math.floor(pos.z);
+    addBlock(x,y,z, currentBlockIndex);
   }
 }
 
@@ -288,6 +298,12 @@ function removeBlockAtView(){
   }
 }
 
+// Логика прыжка и гравитации
+let isJumping = false;
+let verticalVelocity = 0;
+const jumpForce = 0.5;
+const gravity = -0.03;
+
 // Кнопки
 document.getElementById('placeBtn').addEventListener('click', placeBlock);
 document.getElementById('removeBtn').addEventListener('click', removeBlockAtView);
@@ -297,6 +313,13 @@ document.getElementById('changeBlockBtn').addEventListener('click', () => {
   currentBlockIndex++;
   if(currentBlockIndex >= blockMaterials.length) currentBlockIndex = 0;
   blockTypeSpan.textContent = blockNames[currentBlockIndex];
+});
+
+document.getElementById('jumpBtn').addEventListener('click', () => {
+  if (!isJumping) {
+    isJumping = true;
+    verticalVelocity = jumpForce;
+  }
 });
 
 document.getElementById('fullscreenBtn').addEventListener('click', () => {
@@ -310,6 +333,18 @@ document.getElementById('fullscreenBtn').addEventListener('click', () => {
 // Анимация
 function animate(){
   requestAnimationFrame(animate);
+
+  // Обновление прыжка
+  if (isJumping) {
+    verticalVelocity += gravity;
+    camera.position.y += verticalVelocity;
+    if (camera.position.y <= 2) {
+      camera.position.y = 2;
+      isJumping = false;
+      verticalVelocity = 0;
+    }
+  }
+
   updateCameraMovement();
   updateCameraRotation();
   renderer.render(scene,camera);
@@ -325,4 +360,5 @@ window.addEventListener('resize', () => {
 </script>
 
 </body>
-    </html>
+  </html>
+  

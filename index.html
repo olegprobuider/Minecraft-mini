@@ -3,13 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>3D Майн с двумя джойстиками и автополноэкранным режимом</title>
+<title>3D Майн - минимальный рабочий пример</title>
 <style>
   body, html { margin:0; height:100%; overflow:hidden; background:#87ceeb; }
   canvas { display:block; }
 
-  /* Джойстик слева (движение) */
-  #joystickContainerLeft {
+  #joystickLeftContainer {
     position: absolute; bottom: 20px; left: 20px; width: 120px; height: 120px;
     background: rgba(0,0,0,0.3); border-radius: 50%; touch-action: none;
     user-select:none; z-index: 10;
@@ -21,8 +20,7 @@
     touch-action: none;
   }
 
-  /* Джойстик справа (поворот камеры) */
-  #joystickContainerRight {
+  #joystickRightContainer {
     position: absolute; bottom: 20px; right: 20px; width: 120px; height: 120px;
     background: rgba(0,0,0,0.3); border-radius: 50%; touch-action: none;
     user-select:none; z-index: 10;
@@ -60,11 +58,11 @@
 </head>
 <body>
 
-<div id="joystickContainerLeft">
+<div id="joystickLeftContainer">
   <div id="joystickLeft"></div>
 </div>
 
-<div id="joystickContainerRight">
+<div id="joystickRightContainer">
   <div id="joystickRight"></div>
 </div>
 
@@ -72,12 +70,13 @@
   <button id="placeBtn">Поставить</button>
   <button id="removeBtn">Убрать</button>
   <button id="changeBlockBtn">Блок: <span id="blockType">Коричневый</span></button>
+  <button id="fullscreenBtn">Полноэкранный</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.min.js"></script>
 
 <script>
-// Сцена и камера
+// --- Основная сцена и камера ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
@@ -88,12 +87,14 @@ const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
+// Свет
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
 directionalLight.position.set(5, 10, 7);
 scene.add(directionalLight);
 
+// Земля
 const groundGeometry = new THREE.PlaneGeometry(100, 100);
 const groundMaterial = new THREE.MeshLambertMaterial({color: 0x228822});
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -101,6 +102,7 @@ ground.rotation.x = -Math.PI / 2;
 ground.position.y = 0;
 scene.add(ground);
 
+// Блоки
 const blockSize = 1;
 const blocks = new Map();
 
@@ -137,15 +139,15 @@ function removeBlock(x,y,z){
   blocks.delete(key);
 }
 
-// Начальные блоки
+// Добавим пару блоков для ориентира
 addBlock(0,0,0);
 addBlock(1,0,0);
 addBlock(-1,0,0);
 addBlock(0,0,1);
 addBlock(0,1,0);
 
-// Джойстик движения (левый)
-const joystickContainerLeft = document.getElementById('joystickContainerLeft');
+// --- Джойстик движения (левый) ---
+const joystickLeftContainer = document.getElementById('joystickLeftContainer');
 const joystickLeft = document.getElementById('joystickLeft');
 let joystickLeftActive = false;
 let startXLeft=0, startYLeft=0;
@@ -186,8 +188,8 @@ joystickLeft.addEventListener('touchend', (e) => {
   velocity.set(0,0,0);
 });
 
-// Джойстик поворота камеры (правый)
-const joystickContainerRight = document.getElementById('joystickContainerRight');
+// --- Джойстик поворота камеры (правый) ---
+const joystickRightContainer = document.getElementById('joystickRightContainer');
 const joystickRight = document.getElementById('joystickRight');
 let joystickRightActive = false;
 let startXRight=0, startYRight=0;
@@ -248,4 +250,10 @@ function updateCameraMovement(){
   const right = new THREE.Vector3();
 
   camera.getWorldDirection(direction);
-  direction
+  direction.y = 0;
+  direction.normalize();
+
+  right.crossVectors(direction, new THREE.Vector3(0,1,0)).normalize();
+
+  const move = new THREE.Vector3();
+  move.addScaledVector(direction, velocity.z * speed);

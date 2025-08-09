@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>3D Майн с двумя джойстиками и прицелом</title>
+<title>3D Майн с двумя джойстиками и прицелом (исправлено)</title>
 <style>
   body, html { margin:0; height:100%; overflow:hidden; background:#87ceeb; }
   canvas { display:block; }
@@ -290,16 +290,13 @@ function placeBlock(){
     const normal = intersect.face.normal;
     const pos = intersect.object.position.clone();
     
-    // Смещение по нормали, чтобы блок разместился рядом
-    pos.x += normal.x * blockSize;
-    pos.y += normal.y * blockSize;
-    pos.z += normal.z * blockSize;
+    // Новая логика: смещение на размер блока, чтобы новый блок всегда вставал на сетку
+    pos.add(normal.multiplyScalar(blockSize));
     
-    // Округление до ближайшего целого, чтобы сетка была ровной
     const x = Math.round(pos.x);
     const y = Math.round(pos.y);
     const z = Math.round(pos.z);
-
+    
     addBlock(x-blockSize/2, y-blockSize/2, z-blockSize/2, currentBlockIndex);
   }
 }
@@ -310,10 +307,10 @@ function removeBlockAtView(){
 
   if(intersects.length > 0){
     const intersect = intersects[0];
-    const cubePos = intersect.object.position;
-    const x = Math.floor(cubePos.x - blockSize/2);
-    const y = Math.floor(cubePos.y - blockSize/2);
-    const z = Math.floor(cubePos.z - blockSize/2);
+    const cube = intersect.object;
+    const x = cube.position.x - blockSize/2;
+    const y = cube.position.y - blockSize/2;
+    const z = cube.position.z - blockSize/2;
     removeBlock(x,y,z);
   }
 }
@@ -378,4 +375,5 @@ window.addEventListener('resize', () => {
 </script>
 
 </body>
-</html>
+    </html>
+  

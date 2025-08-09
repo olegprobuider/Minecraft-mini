@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>3D Майн с двумя джойстиками</title>
+<title>3D Майн с двумя джойстиками и прицелом</title>
 <style>
   body, html { margin:0; height:100%; overflow:hidden; background:#87ceeb; }
   canvas { display:block; }
@@ -32,7 +32,7 @@
     gap: 10px;
     z-index: 11;
   }
-  #buttons button:last-child { margin-top: 10px; } /* Отступ для кнопки полноэкранного режима */
+  #buttons button:last-child { margin-top: 10px; }
 
   button {
     font-size: 16px;
@@ -46,6 +46,19 @@
 
   #blockType {
     font-weight: bold;
+  }
+
+  #crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    margin-left: -4px;
+    margin-top: -4px;
+    background-color: white;
+    border-radius: 50%;
+    z-index: 9;
   }
 </style>
 </head>
@@ -66,6 +79,8 @@
   <button id="jumpBtn">Прыжок</button>
   <button id="fullscreenBtn">Полноэкранный</button>
 </div>
+
+<div id="crosshair"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.min.js"></script>
 
@@ -99,9 +114,8 @@ scene.add(ground);
 
 // Кубы (блоки)
 const blockSize = 1;
-const blocks = new Map(); // координаты -> Mesh
+const blocks = new Map();
 
-// Разные материалы блоков
 const blockMaterials = [
   new THREE.MeshLambertMaterial({color: 0x8B4513}), // коричневый
   new THREE.MeshLambertMaterial({color: 0xFFD700}), // жёлтый
@@ -112,7 +126,6 @@ const blockMaterials = [
 const blockNames = ['Коричневый', 'Жёлтый', 'Синий', 'Серый'];
 let currentBlockIndex = 0;
 
-// Геометрия куба одна для всех
 const cubeGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
 
 function posToKey(x,y,z) {
@@ -138,7 +151,6 @@ function removeBlock(x,y,z){
   blocks.delete(key);
 }
 
-// Начальные блоки для примера
 addBlock(0,0,0);
 addBlock(1,0,0);
 addBlock(-1,0,0);
@@ -189,14 +201,13 @@ joystickContainerLeft.addEventListener('touchend', (e) => {
   velocity.set(0,0,0);
 }, { passive: false });
 
-
 // ДЖОЙСТИК ДЛЯ ПОВОРОТА КАМЕРЫ (ПРАВЫЙ)
 const joystickContainerRight = document.getElementById('joystickContainerRight');
 const joystickRight = document.getElementById('joystickRight');
 let joystickRightActive = false;
 let startXRight = 0, startYRight = 0;
-let yaw = 0;   // влево-вправо
-let pitch = 0; // вверх-вниз
+let yaw = 0;
+let pitch = 0;
 const pitchLimit = Math.PI / 2 - 0.1;
 
 joystickContainerRight.addEventListener('touchstart', (e) => {
@@ -276,11 +287,20 @@ function placeBlock(){
 
   if(intersects.length > 0){
     const intersect = intersects[0];
-    let pos = intersect.point.add(intersect.face.normal);
-    let x = Math.floor(pos.x);
-    let y = Math.floor(pos.y);
-    let z = Math.floor(pos.z);
-    addBlock(x,y,z, currentBlockIndex);
+    const normal = intersect.face.normal;
+    const pos = intersect.object.position.clone();
+    
+    // Смещение по нормали, чтобы блок разместился рядом
+    pos.x += normal.x * blockSize;
+    pos.y += normal.y * blockSize;
+    pos.z += normal.z * blockSize;
+    
+    // Округление до ближайшего целого, чтобы сетка была ровной
+    const x = Math.round(pos.x);
+    const y = Math.round(pos.y);
+    const z = Math.round(pos.z);
+
+    addBlock(x-blockSize/2, y-blockSize/2, z-blockSize/2, currentBlockIndex);
   }
 }
 
@@ -334,7 +354,6 @@ document.getElementById('fullscreenBtn').addEventListener('click', () => {
 function animate(){
   requestAnimationFrame(animate);
 
-  // Обновление прыжка
   if (isJumping) {
     verticalVelocity += gravity;
     camera.position.y += verticalVelocity;
@@ -351,7 +370,6 @@ function animate(){
 }
 animate();
 
-// Изменение размера окна
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
@@ -360,5 +378,4 @@ window.addEventListener('resize', () => {
 </script>
 
 </body>
-  </html>
-  
+</html>

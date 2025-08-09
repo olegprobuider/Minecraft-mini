@@ -3,14 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<title>3D Майн - мобильное управление</title>
+<title>3D Майн с управлением камерой и кнопками</title>
 <style>
   body, html { margin:0; height:100%; overflow:hidden; background:#87ceeb; }
   canvas { display:block; }
+
   #joystickContainer {
     position: absolute; bottom: 20px; left: 20px; width: 120px; height: 120px;
     background: rgba(0,0,0,0.3); border-radius: 50%; touch-action: none;
     user-select:none;
+    z-index: 10;
   }
   #joystick {
     position: absolute; left: 50%; top: 50%;
@@ -18,12 +20,28 @@
     background: rgba(255,255,255,0.7); border-radius: 50%;
     touch-action: none;
   }
-  #actionBtn {
-    position: absolute; bottom: 40px; right: 30px;
-    width: 80px; height: 80px; background: rgba(255,255,255,0.7);
-    border-radius: 50%; font-size: 18px; font-weight: bold;
-    text-align:center; line-height:80px; user-select:none; touch-action:none;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+
+  #buttons {
+    position: absolute;
+    top: 10px; right: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 11;
+  }
+
+  button {
+    font-size: 16px;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 0 8px rgba(0,0,0,0.3);
+    user-select:none;
+  }
+
+  #blockType {
+    font-weight: bold;
   }
 </style>
 </head>
@@ -32,7 +50,13 @@
 <div id="joystickContainer">
   <div id="joystick"></div>
 </div>
-<div id="actionBtn">Поставить/Убрать</div>
+
+<div id="buttons">
+  <button id="placeBtn">Поставить</button>
+  <button id="removeBtn">Убрать</button>
+  <button id="changeBlockBtn">Блок: <span id="blockType">Коричневый</span></button>
+  <button id="fullscreenBtn">Полноэкранный</button>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.min.js"></script>
 
@@ -68,19 +92,29 @@ scene.add(ground);
 const blockSize = 1;
 const blocks = new Map(); // координаты -> Mesh
 
-const cubeGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
-const cubeMaterial = new THREE.MeshLambertMaterial({color: 0x8B4513}); // коричневый блок
+// Разные материалы блоков
+const blockMaterials = [
+  new THREE.MeshLambertMaterial({color: 0x8B4513}), // коричневый
+  new THREE.MeshLambertMaterial({color: 0xffffff}), // белый
+  new THREE.MeshLambertMaterial({color: 0xFFD700}), // жёлтый (золото)
+];
 
-// Помощь для координат блока (целочисленные по блоку)
+const blockNames = ['Коричневый', 'Белый', 'Жёлтый'];
+let currentBlockIndex = 0;
+
+// Геометрия куба одна для всех
+const cubeGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+
 function posToKey(x,y,z) {
   return `${x},${y},${z}`;
 }
 
-function addBlock(x,y,z){
+function addBlock(x,y,z, type = currentBlockIndex){
   const key = posToKey(x,y,z);
   if(blocks.has(key)) return; // блок уже есть
-  const cube = new THREE.Mesh(cubeGeometry, cubeMaterial.clone());
+  const cube = new THREE.Mesh(cubeGeometry, blockMaterials[type].clone());
   cube.position.set(x+blockSize/2, y+blockSize/2, z+blockSize/2);
+  cube.userData.type = type;
   scene.add(cube);
   blocks.set(key, cube);
 }
@@ -94,14 +128,14 @@ function removeBlock(x,y,z){
   blocks.delete(key);
 }
 
-// Начальный блок
+// Начальные блоки для примера
 addBlock(0,0,0);
 addBlock(1,0,0);
 addBlock(-1,0,0);
 addBlock(0,0,1);
 addBlock(0,1,0);
 
-// Управление движением через виртуальный джойстик
+// Джойстик для движения
 const joystickContainer = document.getElementById('joystickContainer');
 const joystick = document.getElementById('joystick');
 let joystickActive = false;
@@ -126,7 +160,6 @@ joystick.addEventListener('touchmove', (e) => {
   const touch = e.touches[0];
   moveX = touch.clientX - startX;
   moveY = touch.clientY - startY;
-  // Ограничим радиус джойстика 40px
   const maxDist = 40;
   const dist = Math.sqrt(moveX*moveX + moveY*moveY);
   if(dist > maxDist){
@@ -135,9 +168,8 @@ joystick.addEventListener('touchmove', (e) => {
     moveY = Math.sin(angle)*maxDist;
   }
   joystick.style.transform = `translate(${moveX}px, ${moveY}px)`;
-  // Нормализуем вектор движения от -1 до 1
   velocity.x = moveX / maxDist;
-  velocity.z = moveY / maxDist * -1; // чтобы вверх было вперед
+  velocity.z = moveY / maxDist * -1;
 });
 joystick.addEventListener('touchend', (e) => {
   e.preventDefault();
@@ -146,13 +178,62 @@ joystick.addEventListener('touchend', (e) => {
   velocity.set(0,0,0);
 });
 
-// Камера и направление
+// Камера вращение пальцем (свайпы справа от джойстика)
+let isRotating = false;
+let lastTouchX = 0;
+let lastTouchY = 0;
+let yaw = 0;   // влево-вправо
+let pitch = 0; // вверх-вниз
+const pitchLimit = Math.PI / 2 - 0.1;
+
+renderer.domElement.addEventListener('touchstart', (e) => {
+  // Игнорируем джойстик область
+  if(e.target === joystick || joystick.contains(e.target)) return;
+  if(e.touches.length === 1){
+    const touch = e.touches[0];
+    if(touch.clientX > joystickContainer.getBoundingClientRect().right + 20){
+      isRotating = true;
+      lastTouchX = touch.clientX;
+      lastTouchY = touch.clientY;
+    }
+  }
+});
+
+renderer.domElement.addEventListener('touchmove', (e) => {
+  if(!isRotating) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const deltaX = touch.clientX - lastTouchX;
+  const deltaY = touch.clientY - lastTouchY;
+  lastTouchX = touch.clientX;
+  lastTouchY = touch.clientY;
+
+  yaw -= deltaX * 0.005;
+  pitch -= deltaY * 0.005;
+
+  if(pitch > pitchLimit) pitch = pitchLimit;
+  if(pitch < -pitchLimit) pitch = -pitchLimit;
+});
+
+renderer.domElement.addEventListener('touchend', (e) => {
+  isRotating = false;
+});
+
+// Обновляем направление камеры по yaw и pitch
+function updateCameraRotation(){
+  const target = new THREE.Vector3();
+  target.x = Math.cos(pitch) * Math.sin(yaw);
+  target.y = Math.sin(pitch);
+  target.z = Math.cos(pitch) * Math.cos(yaw);
+
+  camera.lookAt(camera.position.x + target.x, camera.position.y + target.y, camera.position.z + target.z);
+}
+
+// Двигаем камеру по направлению джойстика
 const direction = new THREE.Vector3();
-const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
 
 function updateCameraMovement(){
-  // Двигаем камеру по направлению джойстика (X-Z плоскость)
   camera.getWorldDirection(direction);
   direction.y = 0;
   direction.normalize();
@@ -166,54 +247,76 @@ function updateCameraMovement(){
   camera.position.add(move);
 }
 
-// Луч для постановки/удаления блока
+// Управление постановкой/удалением блоков через кнопки и ракетинг
 const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
-let intersectPoint = null;
+const pointer = new THREE.Vector2(0,0); // центр экрана
 
-function onPointerDown(e){
-  e.preventDefault();
-
-  // Получаем центр экрана в нормализованных координатах для рэйкастера
-  pointer.x = 0;
-  pointer.y = 0;
-
+function placeBlock(){
   raycaster.setFromCamera(pointer, camera);
   const intersects = raycaster.intersectObjects(Array.from(blocks.values()).concat(ground));
 
   if(intersects.length > 0){
     const intersect = intersects[0];
     if(intersect.object === ground){
-      // Касание по земле — ставим блок на месте касания (округлим координаты)
       const pos = intersect.point;
       const x = Math.floor(pos.x);
       const y = 0;
       const z = Math.floor(pos.z);
-      addBlock(x,y,z);
+      addBlock(x,y,z, currentBlockIndex);
     } else {
-      // Касание по блоку — убираем этот блок
       const pos = intersect.point;
-      // Определим координаты блока
       const cubePos = intersect.object.position;
       const x = Math.floor(cubePos.x - blockSize/2);
       const y = Math.floor(cubePos.y - blockSize/2);
       const z = Math.floor(cubePos.z - blockSize/2);
-      removeBlock(x,y,z);
+      addBlock(x,y+1,z, currentBlockIndex);
     }
   }
 }
 
-renderer.domElement.addEventListener('touchstart', onPointerDown);
+function removeBlockAtView(){
+  raycaster.setFromCamera(pointer, camera);
+  const intersects = raycaster.intersectObjects(Array.from(blocks.values()));
+
+  if(intersects.length > 0){
+    const intersect = intersects[0];
+    const cubePos = intersect.object.position;
+    const x = Math.floor(cubePos.x - blockSize/2);
+    const y = Math.floor(cubePos.y - blockSize/2);
+    const z = Math.floor(cubePos.z - blockSize/2);
+    removeBlock(x,y,z);
+  }
+}
+
+// Кнопки
+document.getElementById('placeBtn').addEventListener('click', placeBlock);
+document.getElementById('removeBtn').addEventListener('click', removeBlockAtView);
+
+const blockTypeSpan = document.getElementById('blockType');
+document.getElementById('changeBlockBtn').addEventListener('click', () => {
+  currentBlockIndex++;
+  if(currentBlockIndex >= blockMaterials.length) currentBlockIndex = 0;
+  blockTypeSpan.textContent = blockNames[currentBlockIndex];
+});
+
+document.getElementById('fullscreenBtn').addEventListener('click', () => {
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen();
+  } else {
+    document.exitFullscreen();
+  }
+});
 
 // Анимация
 function animate(){
   requestAnimationFrame(animate);
   updateCameraMovement();
+  updateCameraRotation();
   renderer.render(scene,camera);
 }
 animate();
 
-// Обработка изменения размера окна
+// Изменение размера окна
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
@@ -222,4 +325,4 @@ window.addEventListener('resize', () => {
 </script>
 
 </body>
-</html>
+  </html>
